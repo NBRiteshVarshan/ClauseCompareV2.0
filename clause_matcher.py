@@ -123,49 +123,79 @@ Respond in JSON format with these keys:
 
         # GPU-accelerated similarity if available
         if self.use_gpu:
-            # Convert to torch tensors
             t1 = torch.tensor(emb1, dtype=torch.float32).to(DEVICE)
             t2 = torch.tensor(emb2, dtype=torch.float32).to(DEVICE)
-
-            # Normalize and compute cosine similarity via matrix multiplication
             t1_norm = t1 / torch.norm(t1, dim=1, keepdim=True)
             t2_norm = t2 / torch.norm(t2, dim=1, keepdim=True)
-            sim_matrix_gpu = torch.mm(t1_norm, t2_norm.T)  # (n1, n2)
-
+            sim_matrix_gpu = torch.mm(t1_norm, t2_norm.T)
             sim_matrix = sim_matrix_gpu.cpu().numpy()
         else:
-            # Fallback to scikit-learn (CPU)
             sim_matrix = cosine_similarity(emb1, emb2)
 
-        update_progress(0.2, "Building best-match map...")
-        best_match_map = {}
-        for i in range(n1):
-            best_j = np.argmax(sim_matrix[i, :])
-            best_sim = sim_matrix[i, best_j]
-            if best_sim >= match_threshold:
-                if best_j not in best_match_map:
-                    best_match_map[best_j] = []
-                best_match_map[best_j].append((i, best_sim))
+        # ------------------------------------------------------------
+        # BIDIRECTIONAL BEST-MATCH MAPPING
+        # ------------------------------------------------------------
+        update_progress(0.2, "Building best-match maps (both directions)...")
 
+        # 1. Best match for each Doc1 clause
+        best_doc1 = {}  # {i: (j, sim)}
+        for i in range(n1):
+            j = np.argmax(sim_matrix[i, :])
+            sim = sim_matrix[i, j]
+            if sim >= match_threshold:
+                best_doc1[i] = (j, sim)
+
+        # 2. Best match for each Doc2 clause
+        best_doc2 = {}  # {j: (i, sim)}
+        for j in range(n2):
+            i = np.argmax(sim_matrix[:, j])
+            sim = sim_matrix[i, j]
+            if sim >= match_threshold:
+                best_doc2[j] = (i, sim)
+
+        # 3. Identify and assign mutual best pairs
         matched_doc1 = [False] * n1
         matched_doc2 = [False] * n2
-        match_pairs = []
+        match_pairs = []  # (i, j, sim, reason)
 
-        update_progress(0.3, "Resolving conflicts...")
-        for j, claimants in best_match_map.items():
+        update_progress(0.3, "Finding mutual best matches...")
+        for i, (j, sim) in best_doc1.items():
+            if j in best_doc2 and best_doc2[j][0] == i:
+                # Mutual best pair
+                if not matched_doc1[i] and not matched_doc2[j]:
+                    matched_doc1[i] = True
+                    matched_doc2[j] = True
+                    match_pairs.append((i, j, sim, 'Mutual best match'))
+
+        # 4. (Optional) Resolve any leftover conflicts – if any Doc2 is claimed by multiple Doc1
+        # but since mutual pairs are unique, this is rarely needed. We'll handle it by
+        # building a map of Doc2 -> list of (i, sim) for remaining Doc1 claims.
+        # However, we already have best_doc1, so we can reuse it for the remaining clauses.
+        # For robustness, we'll collect all Doc1 claims (not already matched) and resolve by highest sim.
+        update_progress(0.4, "Resolving any remaining conflicts...")
+        remaining_map = {}  # doc2 -> list of (i, sim)
+        for i, (j, sim) in best_doc1.items():
+            if not matched_doc1[i] and not matched_doc2[j]:
+                if j not in remaining_map:
+                    remaining_map[j] = []
+                remaining_map[j].append((i, sim))
+
+        for j, claimants in remaining_map.items():
             if len(claimants) == 1:
                 i, sim = claimants[0]
                 matched_doc1[i] = True
                 matched_doc2[j] = True
                 match_pairs.append((i, j, sim, 'Best match (unique)'))
             else:
+                # Pick the highest similarity
                 claimants.sort(key=lambda x: x[1], reverse=True)
                 winner_i, winner_sim = claimants[0]
                 matched_doc1[winner_i] = True
                 matched_doc2[j] = True
                 match_pairs.append((winner_i, j, winner_sim, 'Best match (highest sim)'))
 
-        update_progress(0.4, "Scanning remaining clauses...")
+        # 5. Greedy fallback for remaining unmatched Doc1 clauses
+        update_progress(0.5, "Scanning remaining clauses for embedding matches...")
         ambiguous_pairs = []
         for i in range(n1):
             if matched_doc1[i]:
@@ -186,7 +216,7 @@ Respond in JSON format with these keys:
                 elif sim >= similarity_threshold:
                     ambiguous_pairs.append((i, j, sim))
 
-        # LLM batch processing (unchanged)
+        # 6. LLM batch for borderline pairs (0.4–0.5)
         if ambiguous_pairs:
             ambiguous_pairs.sort(key=lambda x: x[2], reverse=True)
             filtered_pairs = []
@@ -196,7 +226,7 @@ Respond in JSON format with these keys:
 
             total_llm = len(filtered_pairs)
             if total_llm > 0:
-                update_progress(0.5, f"LLM processing {total_llm} borderline pairs...")
+                update_progress(0.6, f"LLM processing {total_llm} borderline pairs...")
                 llm_matches = 0
                 max_workers = 5
                 completed = 0
@@ -214,7 +244,7 @@ Respond in JSON format with these keys:
                     for future in as_completed(future_to_pair):
                         i, j, sim = future_to_pair[future]
                         completed += 1
-                        progress = 0.5 + (completed / total_llm) * 0.5
+                        progress = 0.6 + (completed / total_llm) * 0.35  # 60%–95%
                         update_progress(progress, f"LLM progress: {completed}/{total_llm}")
 
                         if matched_doc1[i] or matched_doc2[j]:
@@ -229,9 +259,11 @@ Respond in JSON format with these keys:
                         except Exception as e:
                             print(f"LLM error for pair ({i},{j}): {e}")
         else:
-            update_progress(1.0, "No borderline pairs – done.")
+            update_progress(0.6, "No borderline pairs – done.")
 
+        # ------------------------------------------------------------
         # Build final output (unchanged)
+        # ------------------------------------------------------------
         update_progress(0.95, "Building final report...")
         match_map = {i: (j, sim, reason) for i, j, sim, reason in match_pairs}
 
@@ -278,7 +310,6 @@ Respond in JSON format with these keys:
         only_in_doc2 = []
         for j in range(n2):
             if not matched_doc2[j]:
-                # Use scikit-learn (already imported) for this fallback
                 sims = cosine_similarity([emb2[j]], emb1)[0]
                 best_idx = np.argmax(sims)
                 only_in_doc2.append({
