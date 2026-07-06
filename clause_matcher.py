@@ -3,19 +3,50 @@ import json
 import numpy as np
 from typing import List, Dict, Any, Tuple, Optional, Callable
 from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.metrics.pairwise import cosine_similarity  # always import for fallback
 import ollama
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils import generate_clause_id
 
+# Try to import torch – if not available, fallback to numpy/sklearn
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+
+if TORCH_AVAILABLE:
+    if torch.cuda.is_available():
+        DEVICE = torch.device("cuda")
+        print("🚀 Using CUDA (NVIDIA GPU)")
+    elif hasattr(torch, 'mps') and torch.mps.is_available():
+        DEVICE = torch.device("mps")
+        print("🚀 Using MPS (Apple Silicon GPU)")
+    else:
+        DEVICE = torch.device("cpu")
+        print("💻 Using PyTorch CPU")
+else:
+    print("💻 Using scikit-learn (CPU)")
+
+
 class LegalClauseMatcher:
-    def __init__(self, embedding_model: str = 'all-MiniLM-L6-v2'):
+    def __init__(self, embedding_model: str = 'all-MiniLM-L6-v2', use_gpu: bool = True):
         print(f"Loading embedding model: {embedding_model}")
         self.embedder = SentenceTransformer(embedding_model)
         self.cache = {}
         self.llm_model = 'llama3.2:3b'
+        self.use_gpu = use_gpu and TORCH_AVAILABLE
+        if self.use_gpu:
+            try:
+                self.embedder.to(DEVICE)
+                print(f"✅ Embedding model moved to {DEVICE}")
+            except Exception as e:
+                print(f"⚠️ Could not move model to GPU: {e}")
+                self.use_gpu = False
+        else:
+            print("💻 Running on CPU")
 
-    def get_embeddings(self, clauses: List[Dict], doc_name: str):
+    def get_embeddings(self, clauses: List[Dict], doc_name: str) -> np.ndarray:
         embeddings = []
         for clause in clauses:
             cid = generate_clause_id(clause['text'], doc_name)
@@ -89,7 +120,22 @@ Respond in JSON format with these keys:
         n2 = len(doc2_clauses)
 
         update_progress(0.1, "Computing similarity matrix...")
-        sim_matrix = cosine_similarity(emb1, emb2)
+
+        # GPU-accelerated similarity if available
+        if self.use_gpu:
+            # Convert to torch tensors
+            t1 = torch.tensor(emb1, dtype=torch.float32).to(DEVICE)
+            t2 = torch.tensor(emb2, dtype=torch.float32).to(DEVICE)
+
+            # Normalize and compute cosine similarity via matrix multiplication
+            t1_norm = t1 / torch.norm(t1, dim=1, keepdim=True)
+            t2_norm = t2 / torch.norm(t2, dim=1, keepdim=True)
+            sim_matrix_gpu = torch.mm(t1_norm, t2_norm.T)  # (n1, n2)
+
+            sim_matrix = sim_matrix_gpu.cpu().numpy()
+        else:
+            # Fallback to scikit-learn (CPU)
+            sim_matrix = cosine_similarity(emb1, emb2)
 
         update_progress(0.2, "Building best-match map...")
         best_match_map = {}
@@ -119,7 +165,6 @@ Respond in JSON format with these keys:
                 matched_doc2[j] = True
                 match_pairs.append((winner_i, j, winner_sim, 'Best match (highest sim)'))
 
-
         update_progress(0.4, "Scanning remaining clauses...")
         ambiguous_pairs = []
         for i in range(n1):
@@ -141,7 +186,7 @@ Respond in JSON format with these keys:
                 elif sim >= similarity_threshold:
                     ambiguous_pairs.append((i, j, sim))
 
-   
+        # LLM batch processing (unchanged)
         if ambiguous_pairs:
             ambiguous_pairs.sort(key=lambda x: x[2], reverse=True)
             filtered_pairs = []
@@ -169,7 +214,6 @@ Respond in JSON format with these keys:
                     for future in as_completed(future_to_pair):
                         i, j, sim = future_to_pair[future]
                         completed += 1
-                        # Update progress: 50% + (completed/total_llm)*50%
                         progress = 0.5 + (completed / total_llm) * 0.5
                         update_progress(progress, f"LLM progress: {completed}/{total_llm}")
 
@@ -187,7 +231,7 @@ Respond in JSON format with these keys:
         else:
             update_progress(1.0, "No borderline pairs – done.")
 
-        # Build final output
+        # Build final output (unchanged)
         update_progress(0.95, "Building final report...")
         match_map = {i: (j, sim, reason) for i, j, sim, reason in match_pairs}
 
@@ -234,6 +278,7 @@ Respond in JSON format with these keys:
         only_in_doc2 = []
         for j in range(n2):
             if not matched_doc2[j]:
+                # Use scikit-learn (already imported) for this fallback
                 sims = cosine_similarity([emb2[j]], emb1)[0]
                 best_idx = np.argmax(sims)
                 only_in_doc2.append({
