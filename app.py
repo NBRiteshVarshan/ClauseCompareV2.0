@@ -11,24 +11,169 @@ from db_manager import DatabaseManager
 
 st.set_page_config(
     page_title="ClauseCompare V2.0",
+    page_icon="⚖️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Static CSS – safe (no user data)
+# Enhanced Custom CSS
 st.markdown("""
     <style>
-    .main-header { font-size: 2.5rem; color: #1E3A8A; text-align: center; margin-bottom: 2rem; }
-    .stats-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1.5rem; border-radius: 0.5rem; text-align: center; }
-    .stButton > button { width: 100%; background-color: #1E3A8A; color: white; font-weight: bold; }
-    .stButton > button:hover { background-color: #1E40AF; color: white; }
-    .doc-card { background-color: #F9FAFB; padding: 1rem; border-radius: 0.5rem; margin: 0.5rem 0; border-left: 4px solid #3B82F6; position: relative; }
-    .doc-card .status { font-size: 0.8rem; padding: 0.2rem 0.5rem; border-radius: 1rem; }
-    .status-compared { background-color: #D1FAE5; color: #065F46; }
-    .status-pending { background-color: #FEF3C7; color: #92400E; }
-    .exact-box { background-color: #F0FDF4; padding: 1rem; border-radius: 0.5rem; margin: 0.5rem 0; border-left: 4px solid #059669; }
-    .partial-box { background-color: #FEF3C7; padding: 1rem; border-radius: 0.5rem; margin: 0.5rem 0; border-left: 4px solid #D97706; }
-    .unique-box { background-color: #FEF2F2; padding: 1rem; border-radius: 0.5rem; margin: 0.5rem 0; border-left: 4px solid #DC2626; }
+    /* Global */
+    .main-header {
+        font-size: 2.8rem;
+        font-weight: 700;
+        color: #1E3A8A;
+        text-align: center;
+        margin-bottom: 1rem;
+        letter-spacing: -0.5px;
+    }
+    .sub-header {
+        color: #6B7280;
+        text-align: center;
+        margin-bottom: 2rem;
+        font-size: 1.1rem;
+    }
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1rem;
+        margin-bottom: 2rem;
+    }
+    .stat-card {
+        background: white;
+        padding: 1.5rem 1rem;
+        border-radius: 1rem;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        text-align: center;
+        border: 1px solid #F3F4F6;
+        transition: transform 0.2s;
+    }
+    .stat-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+    }
+    .stat-number {
+        font-size: 2.8rem;
+        font-weight: 700;
+        line-height: 1.2;
+    }
+    .stat-label {
+        color: #6B7280;
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .doc-card {
+        background: white;
+        padding: 1rem 1.25rem;
+        border-radius: 0.75rem;
+        margin: 0.5rem 0;
+        border: 1px solid #E5E7EB;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        transition: border-color 0.2s;
+    }
+    .doc-card:hover {
+        border-color: #3B82F6;
+    }
+    .doc-name {
+        font-weight: 500;
+        color: #111827;
+    }
+    .doc-meta {
+        color: #6B7280;
+        font-size: 0.85rem;
+    }
+    .status-badge {
+        padding: 0.15rem 0.6rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 500;
+    }
+    .status-compared {
+        background: #D1FAE5;
+        color: #065F46;
+    }
+    .status-pending {
+        background: #FEF3C7;
+        color: #92400E;
+    }
+    .delete-btn {
+        background: none;
+        border: none;
+        color: #9CA3AF;
+        font-size: 1.1rem;
+        cursor: pointer;
+        padding: 0 0.2rem;
+        transition: color 0.2s;
+    }
+    .delete-btn:hover {
+        color: #EF4444;
+    }
+    .exact-box {
+        background: #F0FDF4;
+        padding: 1rem;
+        border-radius: 0.75rem;
+        margin: 0.5rem 0;
+        border-left: 4px solid #059669;
+    }
+    .partial-box {
+        background: #FEF3C7;
+        padding: 1rem;
+        border-radius: 0.75rem;
+        margin: 0.5rem 0;
+        border-left: 4px solid #D97706;
+    }
+    .unique-box {
+        background: #FEF2F2;
+        padding: 1rem;
+        border-radius: 0.75rem;
+        margin: 0.5rem 0;
+        border-left: 4px solid #DC2626;
+    }
+    .stButton > button {
+        background-color: #1E3A8A;
+        color: white;
+        font-weight: 500;
+        border: none;
+        border-radius: 0.5rem;
+        padding: 0.5rem 1.5rem;
+        transition: background 0.2s;
+    }
+    .stButton > button:hover {
+        background-color: #1E40AF;
+        color: white;
+    }
+    .stButton > button:disabled {
+        background-color: #9CA3AF;
+    }
+    .sidebar-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: #1E3A8A;
+        margin-bottom: 0.25rem;
+    }
+    .sidebar-sub {
+        color: #6B7280;
+        font-size: 0.9rem;
+        margin-bottom: 1rem;
+    }
+    .footer {
+        text-align: center;
+        color: #9CA3AF;
+        font-size: 0.8rem;
+        margin-top: 3rem;
+        border-top: 1px solid #E5E7EB;
+        padding-top: 1.5rem;
+    }
+    /* Responsive tweaks */
+    @media (max-width: 640px) {
+        .stats-grid {
+            grid-template-columns: 1fr;
+        }
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -51,16 +196,57 @@ def init_session_state():
         st.session_state.confirm_delete_id = None
 
 def escape_text(text: str) -> str:
-    """Escape HTML special characters to prevent XSS."""
     return html.escape(text)
+
+def render_stats(total, compared, pending):
+    st.markdown(f"""
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-number" style="color:#4F46E5;">{total}</div>
+                <div class="stat-label">📄 Total Documents</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" style="color:#059669;">{compared}</div>
+                <div class="stat-label">✅ Compared</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" style="color:#D97706;">{pending}</div>
+                <div class="stat-label">⏳ Pending</div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+def render_doc_list(docs, title, db):
+    if not docs:
+        st.info(f"No {title.lower()} documents uploaded yet.")
+        return
+    for doc in docs:
+        status = "Compared" if doc['is_compared'] else "Pending"
+        status_class = "status-compared" if doc['is_compared'] else "status-pending"
+        with st.container():
+            col1, col2 = st.columns([10, 1])
+            with col1:
+                st.markdown(f"""
+                    <div class="doc-card">
+                        <div>
+                            <span class="doc-name">{doc['name']}</span>
+                            <span class="status-badge {status_class}">{status}</span>
+                            <span class="doc-meta"> • Uploaded: {doc['uploaded_at']}</span>
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
+            with col2:
+                if st.button("🗑️", key=f"del_{doc['id']}"):
+                    st.session_state.confirm_delete_id = doc['id']
+                    st.rerun()
 
 def main():
     init_session_state()
     db = st.session_state.db
 
     with st.sidebar:
-        st.title("📂 ClauseCompare V2")
-        st.caption("Your local contract management")
+        st.markdown('<div class="sidebar-title">📂 ClauseCompare</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sidebar-sub">Your local contract companion</div>', unsafe_allow_html=True)
         st.divider()
         page = st.radio("Navigate", ["Dashboard", "Compare Documents", "Add Document", "Reports"])
         st.session_state.page = page
@@ -72,40 +258,28 @@ def main():
                 if key != 'db':
                     del st.session_state[key]
             st.rerun()
+        st.divider()
+        st.markdown("""
+            <div style="font-size:0.8rem; color:#6B7280; text-align:center;">
+                🔒 All data stays local<br>
+                ⚡ Powered by local LLM
+            </div>
+        """, unsafe_allow_html=True)
 
     # ---------- DASHBOARD ----------
     if st.session_state.page == "Dashboard":
         st.markdown('<h1 class="main-header">📊 Dashboard</h1>', unsafe_allow_html=True)
+        st.markdown('<div class="sub-header">Overview of your contract repository</div>', unsafe_allow_html=True)
+
         stats = db.get_stats()
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.markdown(f"""
-                <div class="stats-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                    <h3>{stats['total']}</h3>
-                    <p>Total Documents</p>
-                </div>
-            """, unsafe_allow_html=True)
-        with col2:
-            st.markdown(f"""
-                <div class="stats-card" style="background: linear-gradient(135deg, #00b09b 0%, #96c93d 100%);">
-                    <h3>{stats['compared']}</h3>
-                    <p>Compared</p>
-                </div>
-            """, unsafe_allow_html=True)
-        with col3:
-            st.markdown(f"""
-                <div class="stats-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
-                    <h3>{stats['pending']}</h3>
-                    <p>Pending</p>
-                </div>
-            """, unsafe_allow_html=True)
+        render_stats(stats['total'], stats['compared'], stats['pending'])
 
         # Delete confirmation
         if st.session_state.confirm_delete_id:
             with st.expander("⚠️ Confirm Delete", expanded=True):
                 doc = db.get_document(st.session_state.confirm_delete_id)
                 if doc:
-                    st.warning(f"Are you sure you want to delete '{doc['name']}'? This cannot be undone.")
+                    st.warning(f"Are you sure you want to delete **{doc['name']}**? This action cannot be undone.")
                     col1, col2 = st.columns(2)
                     with col1:
                         if st.button("✅ Yes, Delete", use_container_width=True):
@@ -121,56 +295,29 @@ def main():
                     st.session_state.confirm_delete_id = None
                     st.rerun()
 
+        st.divider()
         st.subheader("📄 Company Documents")
         company_docs = db.get_all_documents('company')
-        if not company_docs:
-            st.info("No company documents uploaded yet.")
-        else:
-            for doc in company_docs:
-                status = "✅ Compared" if doc['is_compared'] else "⏳ Pending"
-                col1, col2, col3 = st.columns([6, 2, 1])
-                with col1:
-                    st.markdown(f"""
-                        <div class="doc-card">
-                            <strong>{doc['name']}</strong>
-                            <span class="status {'status-compared' if doc['is_compared'] else 'status-pending'}">{status}</span>
-                            <span style="float:right; color:#6B7280; font-size:0.8rem;">Uploaded: {doc['uploaded_at']}</span>
-                        </div>
-                    """, unsafe_allow_html=True)
-                with col3:
-                    if st.button("🗑️", key=f"del_{doc['id']}"):
-                        st.session_state.confirm_delete_id = doc['id']
-                        st.rerun()
+        render_doc_list(company_docs, "company", db)
 
         st.subheader("📄 Third‑Party Documents")
         third_party_docs = db.get_all_documents('third_party')
-        if not third_party_docs:
-            st.info("No third‑party documents uploaded yet.")
-        else:
-            for doc in third_party_docs:
-                status = "✅ Compared" if doc['is_compared'] else "⏳ Pending"
-                col1, col2, col3 = st.columns([6, 2, 1])
-                with col1:
-                    st.markdown(f"""
-                        <div class="doc-card">
-                            <strong>{doc['name']}</strong>
-                            <span class="status {'status-compared' if doc['is_compared'] else 'status-pending'}">{status}</span>
-                            <span style="float:right; color:#6B7280; font-size:0.8rem;">Uploaded: {doc['uploaded_at']}</span>
-                        </div>
-                    """, unsafe_allow_html=True)
-                with col3:
-                    if st.button("🗑️", key=f"del_{doc['id']}"):
-                        st.session_state.confirm_delete_id = doc['id']
-                        st.rerun()
+        render_doc_list(third_party_docs, "third‑party", db)
 
     # ---------- ADD DOCUMENT ----------
     elif st.session_state.page == "Add Document":
         st.markdown('<h1 class="main-header">📤 Add New Document</h1>', unsafe_allow_html=True)
-        with st.form("upload_form"):
-            doc_name = st.text_input("Document Name (optional)", placeholder="e.g., NDA_v3")
-            category = st.selectbox("Category", ["company", "third_party"])
-            uploaded_file = st.file_uploader("Upload PDF or DOCX", type=['pdf', 'docx'])
-            submitted = st.form_submit_button("Upload & Extract")
+        st.markdown('<div class="sub-header">Upload a PDF or DOCX to extract clauses for comparison</div>', unsafe_allow_html=True)
+
+        with st.form("upload_form", clear_on_submit=False):
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                doc_name = st.text_input("Document Name (optional)", placeholder="e.g., NDA_v3")
+            with col2:
+                category = st.selectbox("Category", ["company", "third_party"])
+            uploaded_file = st.file_uploader("Choose a file", type=['pdf', 'docx'])
+            submitted = st.form_submit_button("📤 Upload & Extract", use_container_width=True)
+
             if submitted and uploaded_file is not None:
                 with st.spinner("Extracting clauses..."):
                     extractor = ClauseExtractor()
@@ -182,19 +329,22 @@ def main():
                             clauses = extractor.extract_from_docx(file_bytes)
                         doc_id = db.add_document(doc_name or uploaded_file.name, category)
                         db.add_clauses(doc_id, clauses)
-                        st.success(f"✅ Document '{uploaded_file.name}' uploaded successfully with {len(clauses)} clauses!")
+                        st.success(f"✅ **{uploaded_file.name}** uploaded successfully with **{len(clauses)}** clauses!")
+                        st.balloons()
+                        st.info("Return to the Dashboard to see it listed.")
                     except Exception as e:
-                        st.error(f"Error: {e}")
+                        st.error(f"❌ Error: {e}")
 
     # ---------- COMPARE DOCUMENTS ----------
     elif st.session_state.page == "Compare Documents":
         st.markdown('<h1 class="main-header">⚖️ Compare Documents</h1>', unsafe_allow_html=True)
+        st.markdown('<div class="sub-header">Select two documents to run a semantic comparison</div>', unsafe_allow_html=True)
 
         company_docs = db.get_all_documents('company')
         third_party_docs = db.get_all_documents('third_party')
 
         if len(company_docs) < 1 or len(third_party_docs) < 1:
-            st.warning("You need at least one Company document and one Third‑Party document to compare.")
+            st.warning("You need at least **one Company document** and **one Third‑Party document** to compare. Upload them first.")
         else:
             comp_options = {f"{d['name']} (ID: {d['id']})": d['id'] for d in company_docs}
             third_options = {f"{d['name']} (ID: {d['id']})": d['id'] for d in third_party_docs}
@@ -207,14 +357,13 @@ def main():
                 selected2 = st.selectbox("📄 Select Third‑Party Document", options=list(third_options.keys()))
                 doc2_id = third_options[selected2]
 
-            # Comparison name input
             comparison_name = st.text_input(
                 "✏️ Name this comparison (optional)",
                 placeholder="e.g., NDA v3 vs Vendor A",
-                help="Give this comparison a meaningful name for easy reference in the Reports section."
+                help="Give it a meaningful name for easy reference in the Reports section."
             )
 
-            if st.button("🔄 Run Comparison", use_container_width=True):
+            if st.button("🚀 Run Comparison", use_container_width=True):
                 with st.spinner("Loading clauses and comparing..."):
                     clauses1 = db.get_clauses(doc1_id)
                     clauses2 = db.get_clauses(doc2_id)
@@ -275,7 +424,6 @@ def main():
                 if doc1 and doc2:
                     st.subheader("📊 Comparison Results")
 
-                    # Coloured boxes for categories
                     exact, partial, unique = categorize_results(results, doc1, doc2)
                     total_matched = len(exact) + len(partial)
                     col1, col2, col3 = st.columns(3)
@@ -346,18 +494,20 @@ def main():
                     pdf_report = generate_pdf_report(results, doc1, doc2)
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.download_button("📄 PDF Report", pdf_report, file_name=f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf", mime="application/pdf")
+                        st.download_button("📄 PDF", pdf_report, file_name=f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf", mime="application/pdf")
                     with col2:
-                        st.download_button("📄 TXT Report", txt_report, file_name=f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+                        st.download_button("📄 TXT", txt_report, file_name=f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
                     with col3:
-                        st.download_button("📊 JSON Report", json_report, file_name=f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+                        st.download_button("📊 JSON", json_report, file_name=f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
 
     # ---------- REPORTS ----------
     elif st.session_state.page == "Reports":
         st.markdown('<h1 class="main-header">📜 Past Comparisons</h1>', unsafe_allow_html=True)
+        st.markdown('<div class="sub-header">All previously saved comparisons</div>', unsafe_allow_html=True)
+
         comparisons = db.get_all_comparisons()
         if not comparisons:
-            st.info("No past comparisons yet.")
+            st.info("No past comparisons yet. Run your first comparison to see results here.")
         else:
             for comp in comparisons:
                 display_name = comp['comparison_name'] if comp['comparison_name'] else f"Comparison #{comp['id']}"
@@ -384,6 +534,14 @@ def main():
                             st.warning("Could not retrieve clauses for this comparison.")
                     else:
                         st.warning("Could not load comparison data.")
+
+    # Footer
+    st.divider()
+    st.markdown("""
+        <div class="footer">
+            ClauseCompare V2.0 • All processing runs locally • No data leaves your machine
+        </div>
+    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     try:
