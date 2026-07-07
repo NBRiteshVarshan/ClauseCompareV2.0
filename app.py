@@ -409,7 +409,6 @@ def main():
                         doc_id = db.add_document(doc_name or uploaded_file.name, category)
                         db.add_clauses(doc_id, clauses)
                         st.success(f"✅ **{uploaded_file.name}** uploaded successfully with **{len(clauses)}** clauses!")
-                        st.balloons()
                         st.info("Return to the Dashboard to see it listed.")
                     except Exception as e:
                         st.error(f"❌ Error: {e}")
