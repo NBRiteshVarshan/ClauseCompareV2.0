@@ -3,6 +3,10 @@ import plotly.graph_objects as go
 from datetime import datetime
 import html
 import time
+import re
+import io
+from docx import Document
+from docx.shared import Inches
 
 from document_processor import ClauseExtractor, get_document_summary
 from clause_matcher import LegalClauseMatcher
@@ -19,7 +23,6 @@ st.set_page_config(
 # Enhanced Custom CSS
 st.markdown("""
     <style>
-    /* Global */
     .main-header {
         font-size: 2.8rem;
         font-weight: 700;
@@ -168,7 +171,9 @@ st.markdown("""
         border-top: 1px solid #E5E7EB;
         padding-top: 1.5rem;
     }
-    /* Responsive tweaks */
+    .variable-input {
+        margin-bottom: 0.75rem;
+    }
     @media (max-width: 640px) {
         .stats-grid {
             grid-template-columns: 1fr;
@@ -194,6 +199,13 @@ def init_session_state():
         st.session_state.compare_doc2_clauses = None
     if 'confirm_delete_id' not in st.session_state:
         st.session_state.confirm_delete_id = None
+    # Document Generator state
+    if 'template_variables' not in st.session_state:
+        st.session_state.template_variables = []
+    if 'template_file' not in st.session_state:
+        st.session_state.template_file = None
+    if 'generated_docx' not in st.session_state:
+        st.session_state.generated_docx = None
 
 def escape_text(text: str) -> str:
     return html.escape(text)
@@ -240,6 +252,73 @@ def render_doc_list(docs, title, db):
                     st.session_state.confirm_delete_id = doc['id']
                     st.rerun()
 
+def extract_variables(text: str) -> list:
+    """Extract all unique variable names from $#...#$ pattern."""
+    pattern = r'\$#(.*?)#\$'
+    matches = re.findall(pattern, text)
+    # Remove duplicates while preserving order
+    seen = set()
+    unique = []
+    for m in matches:
+        if m not in seen:
+            seen.add(m)
+            unique.append(m)
+    return unique
+
+def process_docx_template(file_bytes: bytes) -> tuple:
+    """Read docx, extract variables and return (document, variables, text)."""
+    doc = Document(io.BytesIO(file_bytes))
+    full_text = []
+    for para in doc.paragraphs:
+        full_text.append(para.text)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                full_text.append(cell.text)
+    text = "\n".join(full_text)
+    variables = extract_variables(text)
+    return doc, variables, text
+
+def generate_docx_from_template(template_bytes: bytes, replacements: dict) -> bytes:
+    """Replace $#...#$ in the docx with values and return as bytes."""
+    doc = Document(io.BytesIO(template_bytes))
+    # Replace in paragraphs
+    for para in doc.paragraphs:
+        for key, value in replacements.items():
+            # We need to replace the exact pattern with value
+            pattern = f"$#{key}#$"
+            if pattern in para.text:
+                # Replace inline runs carefully
+                # For simplicity, we can replace the entire paragraph text
+                # but that would lose formatting. Better to replace run text.
+                # We'll iterate through runs
+                for run in para.runs:
+                    if pattern in run.text:
+                        run.text = run.text.replace(pattern, value)
+                # Also handle paragraphs that might have the pattern split across runs
+                # For safety, also replace at paragraph level if runs didn't catch all
+                if pattern in para.text:
+                    para.text = para.text.replace(pattern, value)
+    # Replace in tables
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for para in cell.paragraphs:
+                    for run in para.runs:
+                        for key, value in replacements.items():
+                            pattern = f"$#{key}#$"
+                            if pattern in run.text:
+                                run.text = run.text.replace(pattern, value)
+                    # Fallback paragraph level
+                    for key, value in replacements.items():
+                        pattern = f"$#{key}#$"
+                        if pattern in para.text:
+                            para.text = para.text.replace(pattern, value)
+    # Save to bytes
+    output = io.BytesIO()
+    doc.save(output)
+    return output.getvalue()
+
 def main():
     init_session_state()
     db = st.session_state.db
@@ -248,7 +327,7 @@ def main():
         st.markdown('<div class="sidebar-title">📂 ClauseCompare</div>', unsafe_allow_html=True)
         st.markdown('<div class="sidebar-sub">Your local contract companion</div>', unsafe_allow_html=True)
         st.divider()
-        page = st.radio("Navigate", ["Dashboard", "Compare Documents", "Add Document", "Reports"])
+        page = st.radio("Navigate", ["Dashboard", "Compare Documents", "Add Document", "Document Generator", "Reports"])
         st.session_state.page = page
         st.divider()
         if st.button("🔄 Reset App", use_container_width=True):
@@ -500,6 +579,77 @@ def main():
                     with col3:
                         st.download_button("📊 JSON", json_report, file_name=f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
 
+    # ---------- DOCUMENT GENERATOR ----------
+    elif st.session_state.page == "Document Generator":
+        st.markdown('<h1 class="main-header">📄 Document Generator</h1>', unsafe_allow_html=True)
+        st.markdown('<div class="sub-header">Upload a DOCX template with variables in $#variable_name#$ format</div>', unsafe_allow_html=True)
+
+        uploaded_template = st.file_uploader("Upload a DOCX template", type=['docx'])
+
+        if uploaded_template is not None:
+            # Read the file
+            file_bytes = uploaded_template.read()
+            doc, variables, full_text = process_docx_template(file_bytes)
+
+            # Store in session state for later use
+            st.session_state.template_bytes = file_bytes
+            st.session_state.template_variables = variables
+
+            if not variables:
+                st.info("No variables found in the template. The document contains no $#...#$ patterns.")
+                # Offer to download the original as is
+                st.download_button(
+                    label="📥 Download Template (as is)",
+                    data=file_bytes,
+                    file_name=f"template_{uploaded_template.name}",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
+            else:
+                st.success(f"Found **{len(variables)}** unique variable(s): {', '.join(variables)}")
+
+                # Form for variable values
+                with st.form("variable_form"):
+                    st.markdown("### Enter values for each variable")
+                    values = {}
+                    for var in variables:
+                        values[var] = st.text_input(f"${var}", key=f"var_{var}")
+                    submitted = st.form_submit_button("📝 Generate Document")
+
+                # Process submission outside the form
+                if submitted:
+                    missing = [var for var, val in values.items() if not val.strip()]
+                    if missing:
+                        st.error(f"Please fill in values for: {', '.join(missing)}")
+                    else:
+                        replacements = {var: values[var].strip() for var in variables}
+                        generated_bytes = generate_docx_from_template(file_bytes, replacements)
+                        st.session_state.generated_docx = generated_bytes
+                        st.success("✅ Document generated successfully!")
+
+                # Display download button if generated bytes exist (outside form)
+                if st.session_state.get('generated_docx'):
+                    st.download_button(
+                        label="📥 Download Generated Document",
+                        data=st.session_state.generated_docx,
+                        file_name=f"generated_{uploaded_template.name}",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
+
+                # Option to clear the generated doc
+                if st.button("🔄 Clear generated document"):
+                    st.session_state.generated_docx = None
+                    st.rerun()
+
+        else:
+            st.info("Please upload a DOCX template to get started.")
+            st.markdown("""
+                **How it works:**
+                1. Create a DOCX file with placeholders like `$#ClientName#$` and `$#EffectiveDate#$`.
+                2. Upload it here.
+                3. Enter the values for each variable.
+                4. Download the populated document with all formatting preserved.
+            """)
+    
     # ---------- REPORTS ----------
     elif st.session_state.page == "Reports":
         st.markdown('<h1 class="main-header">📜 Past Comparisons</h1>', unsafe_allow_html=True)
