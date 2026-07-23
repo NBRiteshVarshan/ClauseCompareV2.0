@@ -12,9 +12,7 @@ from reportlab.lib import colors
 from reportlab.lib.units import inch
 import io
 
-# ------------------------------------------------------------
-# Helper to recursively convert NumPy types to Python natives
-# ------------------------------------------------------------
+# Recursively converting NumPy types to Python natives
 def sanitize_for_json(obj):
     if isinstance(obj, (np.float32, np.float64)):
         return float(obj)
@@ -28,27 +26,25 @@ def sanitize_for_json(obj):
         return [sanitize_for_json(item) for item in obj]
     return obj
 
-# ------------------------------------------------------------
-# Utility functions
-# ------------------------------------------------------------
-def clean_text(text: str) -> str:
+
+def clean_text(text: str):
     text = re.sub(r'\s+', ' ', text)
     text = re.sub(r'[^\w\s\.\,\;\:\-\"\'\?\$\%\&\(\)]', '', text)
     return text.strip()
 
-def generate_clause_id(text: str, document_name: str) -> str:
+def generate_clause_id(text: str, document_name: str):
     content_hash = hashlib.md5(text.encode()).hexdigest()[:8]
     doc_hash = hashlib.md5(document_name.encode()).hexdigest()[:6]
     return f"{doc_hash}_{content_hash}"
 
-def format_report(results: Dict) -> str:
+def format_report(results: Dict):
     lines = []
     lines.append("=" * 80)
     lines.append("LEGAL DOCUMENT COMPARISON REPORT")
     lines.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append("=" * 80)
 
-    lines.append("\n📄 CLAUSES IN DOCUMENT 1 BUT NOT IN DOCUMENT 2")
+    lines.append("\n CLAUSES IN DOCUMENT 1 BUT NOT IN DOCUMENT 2")
     lines.append("-" * 60)
     for idx, clause in enumerate(results.get('only_in_doc1', []), 1):
         lines.append(f"{idx}. {clause['text']}")
@@ -57,7 +53,7 @@ def format_report(results: Dict) -> str:
             lines.append(f"   → Similarity score: {clause.get('similarity', 0):.2f}")
         lines.append("")
 
-    lines.append("\n📄 CLAUSES IN DOCUMENT 2 BUT NOT IN DOCUMENT 1")
+    lines.append("\n CLAUSES IN DOCUMENT 2 BUT NOT IN DOCUMENT 1")
     lines.append("-" * 60)
     for idx, clause in enumerate(results.get('only_in_doc2', []), 1):
         lines.append(f"{idx}. {clause['text']}")
@@ -66,7 +62,7 @@ def format_report(results: Dict) -> str:
             lines.append(f"   → Similarity score: {clause.get('similarity', 0):.2f}")
         lines.append("")
 
-    lines.append("\n📊 SUMMARY STATISTICS")
+    lines.append("\n SUMMARY STATISTICS")
     lines.append("-" * 60)
     lines.append(f"Total clauses in Document 1: {results.get('total_doc1', 0)}")
     lines.append(f"Total clauses in Document 2: {results.get('total_doc2', 0)}")
@@ -77,7 +73,7 @@ def format_report(results: Dict) -> str:
     lines.append("=" * 80)
     return "\n".join(lines)
 
-def save_report(results: Dict, filename: str = None) -> str:
+def save_report(results: Dict, filename: str = None):
     clean_results = {
         'only_in_doc1': results.get('only_in_doc1', []),
         'only_in_doc2': results.get('only_in_doc2', []),
@@ -94,74 +90,7 @@ def save_report(results: Dict, filename: str = None) -> str:
             f.write(json_str)
     return json_str
 
-# ------------------------------------------------------------
-# Filtered Diff (numbers, dates, places)
-# ------------------------------------------------------------
-# Updated number pattern – matches any token that contains at least one digit
-_number_pattern = re.compile(r'.*\d+.*')
-_date_pattern = re.compile(
-    r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|'
-    r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{1,2},?\s+\d{4}\b',
-    re.IGNORECASE
-)
-_place_pattern = re.compile(
-    r'\b(?:Delhi|Mumbai|Chennai|Kolkata|Bengaluru|Hyderabad|Pune|Ahmedabad|Surat|Jaipur|'
-    r'Lucknow|Kanpur|Nagpur|Indore|Thane|Bhopal|Visakhapatnam|Patna|Vadodara|Ghaziabad|'
-    r'Ludhiana|Agra|Nashik|Faridabad|Meerut|Rajkot|Varanasi|Srinagar|Aurangabad|Dhanbad|'
-    r'Amritsar|Navi Mumbai|Allahabad|Ranchi|Howrah|Coimbatore|Jabalpur|Gwalior|Vijayawada|'
-    r'Jodhpur|Madurai|Raipur|Kota|Guwahati|Chandigarh|Solapur|Mysore|Tiruchirappalli|'
-    r'Bareilly|Aligarh|Tiruppur|Gurugram|Moradabad|Jalandhar|Bhubaneswar|Salem|'
-    r'Thiruvananthapuram|Bhiwandi|Saharanpur|Gorakhpur|Guntur|Bikaner|Amravati|Noida|'
-    r'Jamshedpur|Bhilai|Warangal|Cuttack|Firozabad|Kochi|Bhavnagar|Dehradun|Durgapur|'
-    r'Asansol|Nanded|Kolhapur|Ajmer|Gulbarga|Jamnagar|Ujjain|Loni|Siliguri|Jhansi|'
-    r'Ulhasnagar|Jammu|Mangalore|Erode|Belgaum|Ambattur|Tirunelveli|Malegaon|Gaya|'
-    r'Jalgaon|Udaipur|Maheshtala|Davanagere|Kozhikode|Kurnool|Bokaro|South Dumdum|'
-    r'Bellary|Patiala|Gopalpur|Agartala|Shillong|Aizawl|Imphal|Itanagar|Kohima|'
-    r'Gangtok|Panaji|New Delhi|Bengaluru|Mysore|Coorg|Ooty|Kodaikanal|Munnar|'
-    r'Goa|Daman|Diu|Pondicherry|Port Blair|Tirupati|Kanchipuram|Madurai|Rameswaram|'
-    r'Kanyakumari|Mahabalipuram|Hampi|Badami|Aihole|Pattadakal|Bijapur|Gulbarga|'
-    r'Bidar|Raichur|Kolar|Tumkur|Shimoga|Dakshina Kannada|Udupi|Chikmagalur|'
-    r'Hassan|Mandya|Ramanagara|Chitradurga|Davanagere|Haveri|Gadag|Dharwad|'
-    r'Belagavi|Bagalkot|Vijayapura|Yadgir|Kalaburagi|Raichur|Koppal|Bellary|'
-    r'Chikkaballapur|Kolar|Chamrajnagar|Nanjangud|Hunsur|Krishnarajanagara|'
-    r'Periyapatna|Hole Narsipur|Srirangapatna|Shivanasamudra|Bhadravati|'
-    r'Channagiri|Harihar|Ranebennur|Byadgi|Navalgund|Nargund|Ron|Gajendragarh|'
-    r'Badami|Pattadakal|Aihole|Mahakuta|Banavasi|Halsi|Sudi|Lakkundi|'
-    r'Itagi|Kuknur|Kadur|Taralabalu|Hiremagalur|Belur|Halebidu|Sravanabelagola|'
-    r'Melukote|Tirumakudalu Narasipura|Talagunda|Balligavi|Kudli|Somnathpur|'
-    r'Doddaballapur|Devanahalli|Hoskote|Malur|Bangarpet|Robertsonpet|Kolar Gold Fields|'
-    r'Krishnagiri|Hosur|Dharmapuri|Salem|Erode|Tiruppur|Coimbatore|Ooty|'
-    r'Kodaikanal|Madurai|Tirunelveli|Kanyakumari|Rameswaram|Karaikudi|'
-    r'Pudukkottai|Thanjavur|Tiruvarur|Nagapattinam|Mayiladuthurai|Kumbakonam|'
-    r'Chidambaram|Villupuram|Cuddalore|Pondicherry|Karaikal|Mahe|Yanam|'
-    r'Chengalpattu|Kanchipuram|Sriperumbudur|Arakkonam|Vellore|Ranipet|'
-    r'Ambur|Gudiyatham|Tirupattur|Krishnagiri|Dharmapuri|Hosur|'
-    r'Bengaluru|Bangalore|B\'lore|B\'luru|Namma Bengaluru)\b',
-    re.IGNORECASE
-)
 
-def get_filtered_diff(text_a: str, text_b: str) -> List[str]:
-    """
-    Returns a list of changes (words) that are numbers, dates, or places.
-    Uses difflib.ndiff on tokenised words.
-    """
-    tokens_a = text_a.split()
-    tokens_b = text_b.split()
-    diff = list(difflib.ndiff(tokens_a, tokens_b))
-    changes = []
-    for item in diff:
-        if item.startswith('- ') or item.startswith('+ '):
-            token = item[2:]
-            # Check if token matches a number, date, or place
-            if (_number_pattern.match(token) or 
-                _date_pattern.match(token) or 
-                _place_pattern.search(token)):
-                changes.append(item)
-    return changes
-
-# ------------------------------------------------------------
-# Categorisation & PDF report (unchanged)
-# ------------------------------------------------------------
 def categorize_results(results, doc1_clauses, doc2_clauses):
     exact = []
     partial = []
@@ -236,10 +165,11 @@ def generate_pdf_report(results, doc1_clauses, doc2_clauses,
     heading_style = styles['Heading2']
     normal_style = styles['Normal']
     
+    # Use a slightly smaller font for clause text to accommodate longer content
     clause_style = ParagraphStyle(
         'ClauseStyle',
         parent=styles['Normal'],
-        fontSize=8,
+        fontSize=8,                # smaller font to fit more text
         leading=10,
         leftIndent=20,
         spaceAfter=6,
@@ -275,37 +205,40 @@ def generate_pdf_report(results, doc1_clauses, doc2_clauses,
     story.append(table)
     story.append(Spacer(1, 0.25*inch))
     
+    # ---- Exact Matches (FULL TEXT) ----
     story.append(PageBreak())
     story.append(Paragraph(f"Exact Matches (Similarity ≥ 0.999) — {len(exact)} pairs", heading_style))
     for match in exact:
         story.append(Paragraph(f"Doc1 Clause {match['doc1_num']}:", clause_style))
-        story.append(Paragraph(match['doc1_text'], clause_style))
+        story.append(Paragraph(match['doc1_text'], clause_style))          # FULL
         story.append(Spacer(1, 0.05*inch))
         story.append(Paragraph(f"Doc2 Clause {match['doc2_num']}:", clause_style))
-        story.append(Paragraph(match['doc2_text'], clause_style))
+        story.append(Paragraph(match['doc2_text'], clause_style))          # FULL
         story.append(Paragraph(f"Similarity: {match['similarity']:.3f}", normal_style))
         story.append(Spacer(1, 0.1*inch))
     if not exact:
         story.append(Paragraph("No exact matches found.", normal_style))
     
+    # ---- Partial Matches (FULL TEXT) ----
     story.append(PageBreak())
     story.append(Paragraph(f"Partial Matches (0.5 ≤ Similarity < 0.999) — {len(partial)} pairs", heading_style))
     for match in partial:
         story.append(Paragraph(f"Doc1 Clause {match['doc1_num']}:", clause_style))
-        story.append(Paragraph(match['doc1_text'], clause_style))
+        story.append(Paragraph(match['doc1_text'], clause_style))          # FULL
         story.append(Spacer(1, 0.05*inch))
         story.append(Paragraph(f"Doc2 Clause {match['doc2_num']}:", clause_style))
-        story.append(Paragraph(match['doc2_text'], clause_style))
+        story.append(Paragraph(match['doc2_text'], clause_style))          # FULL
         story.append(Paragraph(f"Similarity: {match['similarity']:.3f}", normal_style))
         story.append(Spacer(1, 0.1*inch))
     if not partial:
         story.append(Paragraph("No partial matches found.", normal_style))
     
+    # ---- Unique Clauses (FULL TEXT) ----
     story.append(PageBreak())
     story.append(Paragraph(f"Unique Clauses (not matched) — {len(unique)} clauses", heading_style))
     for clause in unique:
         story.append(Paragraph(f"{clause['document']} – Clause {clause['number']}:", clause_style))
-        story.append(Paragraph(clause['text'], clause_style))
+        story.append(Paragraph(clause['text'], clause_style))              # FULL
         story.append(Paragraph(f"Best similarity: {clause['similarity']:.3f}", normal_style))
         story.append(Spacer(1, 0.1*inch))
     if not unique:
@@ -315,3 +248,4 @@ def generate_pdf_report(results, doc1_clauses, doc2_clauses,
     pdf_bytes = buffer.getvalue()
     buffer.close()
     return pdf_bytes
+

@@ -10,7 +10,7 @@ from docx.shared import Inches
 
 from document_processor import ClauseExtractor, get_document_summary
 from clause_matcher import LegalClauseMatcher
-from utils import format_report, save_report, generate_pdf_report, categorize_results, get_filtered_diff
+from utils import format_report, save_report, generate_pdf_report, categorize_results
 from db_manager import DatabaseManager
 
 st.set_page_config(
@@ -174,22 +174,6 @@ st.markdown("""
     .variable-input {
         margin-bottom: 0.75rem;
     }
-    .diff-text {
-        font-family: monospace;
-        background-color: #F3F4F6;
-        padding: 0.25rem 0.5rem;
-        border-radius: 0.25rem;
-        margin: 0.1rem 0;
-        font-size: 0.9rem;
-    }
-    .diff-removed {
-        color: #DC2626;
-        background-color: #FEF2F2;
-    }
-    .diff-added {
-        color: #059669;
-        background-color: #F0FDF4;
-    }
     @media (max-width: 640px) {
         .stats-grid {
             grid-template-columns: 1fr;
@@ -215,14 +199,13 @@ def init_session_state():
         st.session_state.compare_doc2_clauses = None
     if 'confirm_delete_id' not in st.session_state:
         st.session_state.confirm_delete_id = None
+    # Document Generator state
     if 'template_variables' not in st.session_state:
         st.session_state.template_variables = []
     if 'template_file' not in st.session_state:
         st.session_state.template_file = None
     if 'generated_docx' not in st.session_state:
         st.session_state.generated_docx = None
-    if 'template_bytes' not in st.session_state:
-        st.session_state.template_bytes = None
 
 def escape_text(text: str) -> str:
     return html.escape(text)
@@ -270,8 +253,10 @@ def render_doc_list(docs, title, db):
                     st.rerun()
 
 def extract_variables(text: str) -> list:
+    """Extract all unique variable names from $#...#$ pattern."""
     pattern = r'\$#(.*?)#\$'
     matches = re.findall(pattern, text)
+    # Remove duplicates while preserving order
     seen = set()
     unique = []
     for m in matches:
@@ -280,7 +265,8 @@ def extract_variables(text: str) -> list:
             unique.append(m)
     return unique
 
-def process_docx_template(file_bytes: bytes):
+def process_docx_template(file_bytes: bytes) -> tuple:
+    """Read docx, extract variables and return (document, variables, text)."""
     doc = Document(io.BytesIO(file_bytes))
     full_text = []
     for para in doc.paragraphs:
@@ -294,16 +280,26 @@ def process_docx_template(file_bytes: bytes):
     return doc, variables, text
 
 def generate_docx_from_template(template_bytes: bytes, replacements: dict) -> bytes:
+    """Replace $#...#$ in the docx with values and return as bytes."""
     doc = Document(io.BytesIO(template_bytes))
+    # Replace in paragraphs
     for para in doc.paragraphs:
         for key, value in replacements.items():
+            # We need to replace the exact pattern with value
             pattern = f"$#{key}#$"
             if pattern in para.text:
+                # Replace inline runs carefully
+                # For simplicity, we can replace the entire paragraph text
+                # but that would lose formatting. Better to replace run text.
+                # We'll iterate through runs
                 for run in para.runs:
                     if pattern in run.text:
                         run.text = run.text.replace(pattern, value)
+                # Also handle paragraphs that might have the pattern split across runs
+                # For safety, also replace at paragraph level if runs didn't catch all
                 if pattern in para.text:
                     para.text = para.text.replace(pattern, value)
+    # Replace in tables
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
@@ -313,10 +309,12 @@ def generate_docx_from_template(template_bytes: bytes, replacements: dict) -> by
                             pattern = f"$#{key}#$"
                             if pattern in run.text:
                                 run.text = run.text.replace(pattern, value)
+                    # Fallback paragraph level
                     for key, value in replacements.items():
                         pattern = f"$#{key}#$"
                         if pattern in para.text:
                             para.text = para.text.replace(pattern, value)
+    # Save to bytes
     output = io.BytesIO()
     doc.save(output)
     return output.getvalue()
@@ -355,6 +353,7 @@ def main():
         stats = db.get_stats()
         render_stats(stats['total'], stats['compared'], stats['pending'])
 
+        # Delete confirmation
         if st.session_state.confirm_delete_id:
             with st.expander("⚠️ Confirm Delete", expanded=True):
                 doc = db.get_document(st.session_state.confirm_delete_id)
@@ -410,7 +409,6 @@ def main():
                         doc_id = db.add_document(doc_name or uploaded_file.name, category)
                         db.add_clauses(doc_id, clauses)
                         st.success(f"✅ **{uploaded_file.name}** uploaded successfully with **{len(clauses)}** clauses!")
-                        st.balloons()
                         st.info("Return to the Dashboard to see it listed.")
                     except Exception as e:
                         st.error(f"❌ Error: {e}")
@@ -511,7 +509,6 @@ def main():
                     col2.metric("Matched", total_matched)
                     col3.metric("Unique", len(unique))
 
-                    # Exact matches
                     with st.expander(f"✅ Exact Matches (Similarity ≥ 0.999) — {len(exact)} pairs"):
                         if exact:
                             for m in exact:
@@ -524,20 +521,9 @@ def main():
                                         <span style="color:#059669;">✅ Similarity: {m['similarity']:.3f}</span>
                                     </div>
                                 """, unsafe_allow_html=True)
-
-                                # Diff
-                                changes = get_filtered_diff(m['doc1_text'], m['doc2_text'])
-                                if changes:
-                                    st.caption("**🔍 Key changes (numbers, dates, places):**")
-                                    for change in changes:
-                                        st.text(change)
-                                else:
-                                    st.caption("No changes in numbers, dates, or places.")
-                                st.divider()
                         else:
                             st.info("No exact matches found.")
 
-                    # Partial matches
                     with st.expander(f"🟡 Partial Matches (0.5 ≤ Similarity < 0.999) — {len(partial)} pairs"):
                         if partial:
                             for m in partial:
@@ -550,20 +536,9 @@ def main():
                                         <span style="color:#D97706;">🔶 Similarity: {m['similarity']:.3f}</span>
                                     </div>
                                 """, unsafe_allow_html=True)
-
-                                # Diff
-                                changes = get_filtered_diff(m['doc1_text'], m['doc2_text'])
-                                if changes:
-                                    st.caption("**🔍 Key changes (numbers, dates, places):**")
-                                    for change in changes:
-                                        st.text(change)
-                                else:
-                                    st.caption("No changes in numbers, dates, or places.")
-                                st.divider()
                         else:
                             st.info("No partial matches found.")
 
-                    # Unique clauses
                     with st.expander(f"🔴 Unique Clauses (not matched) — {len(unique)} clauses"):
                         if unique:
                             unique_doc1_list = [u for u in unique if u['document'] == 'Document 1']
@@ -611,13 +586,17 @@ def main():
         uploaded_template = st.file_uploader("Upload a DOCX template", type=['docx'])
 
         if uploaded_template is not None:
+            # Read the file
             file_bytes = uploaded_template.read()
             doc, variables, full_text = process_docx_template(file_bytes)
+
+            # Store in session state for later use
             st.session_state.template_bytes = file_bytes
             st.session_state.template_variables = variables
 
             if not variables:
                 st.info("No variables found in the template. The document contains no $#...#$ patterns.")
+                # Offer to download the original as is
                 st.download_button(
                     label="📥 Download Template (as is)",
                     data=file_bytes,
@@ -627,6 +606,7 @@ def main():
             else:
                 st.success(f"Found **{len(variables)}** unique variable(s): {', '.join(variables)}")
 
+                # Form for variable values
                 with st.form("variable_form"):
                     st.markdown("### Enter values for each variable")
                     values = {}
@@ -634,6 +614,7 @@ def main():
                         values[var] = st.text_input(f"${var}", key=f"var_{var}")
                     submitted = st.form_submit_button("📝 Generate Document")
 
+                # Process submission outside the form
                 if submitted:
                     missing = [var for var, val in values.items() if not val.strip()]
                     if missing:
@@ -644,6 +625,7 @@ def main():
                         st.session_state.generated_docx = generated_bytes
                         st.success("✅ Document generated successfully!")
 
+                # Display download button if generated bytes exist (outside form)
                 if st.session_state.get('generated_docx'):
                     st.download_button(
                         label="📥 Download Generated Document",
@@ -652,6 +634,7 @@ def main():
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                     )
 
+                # Option to clear the generated doc
                 if st.button("🔄 Clear generated document"):
                     st.session_state.generated_docx = None
                     st.rerun()
@@ -665,7 +648,7 @@ def main():
                 3. Enter the values for each variable.
                 4. Download the populated document with all formatting preserved.
             """)
-
+    
     # ---------- REPORTS ----------
     elif st.session_state.page == "Reports":
         st.markdown('<h1 class="main-header">📜 Past Comparisons</h1>', unsafe_allow_html=True)
